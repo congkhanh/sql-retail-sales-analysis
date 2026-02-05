@@ -1,0 +1,58 @@
+WITH customer_metrics AS (
+  SELECT
+    CUSTOMER_ID,
+    MAX(ORDER_DATE) AS last_order_date,
+    COUNT(DISTINCT ORDER_ID) AS frequency,
+    SUM(SALES) AS monetary
+  FROM vw_sales
+  GROUP BY CUSTOMER_ID
+),
+
+
+
+-- Calculate RFM values
+rfm_base AS (
+  SELECT
+    c.CUSTOMER_ID,
+    DATEDIFF(
+      day,
+      c.last_order_date,
+      (SELECT MAX(ORDER_DATE) FROM vw_sales)
+    ) AS recency,
+    c.frequency,
+    c.monetary
+  FROM customer_metrics c
+)
+,
+
+-- Score customers using quintiles
+rfm_scores AS (
+  SELECT
+    CUSTOMER_ID,
+    recency,
+    frequency,
+    monetary,
+    NTILE(5) OVER (ORDER BY recency DESC) AS r_score,
+    NTILE(5) OVER (ORDER BY frequency)    AS f_score,
+    NTILE(5) OVER (ORDER BY monetary)     AS m_score
+  FROM rfm_base
+)
+
+-- Assign RFM segments
+SELECT
+  CUSTOMER_ID,
+  recency,
+  frequency,
+  monetary,
+  r_score,
+  f_score,
+  m_score,
+  (r_score + f_score + m_score) AS rfm_score,
+  CASE
+    WHEN r_score >= 4 AND f_score >= 4 AND m_score >= 4 THEN 'Loyal'
+    WHEN r_score >= 4 AND f_score <= 2 THEN 'At Risk'
+    WHEN r_score <= 2 AND f_score <= 2 THEN 'New'
+    WHEN m_score >= 4 THEN 'Big Spenders'
+    ELSE 'Others'
+  END AS rfm_segment
+FROM rfm_scores;
